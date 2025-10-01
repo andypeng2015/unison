@@ -218,9 +218,11 @@ module U.Codebase.Sqlite.Queries
     EntityLocation (..),
     entityExists,
     entityLocation,
+    entityLocationSyncV3,
     expectEntity,
     syncToTempEntity,
     insertTempEntity,
+    insertTempEntitySyncV3,
     saveTempEntityInMain,
     expectTempEntity,
     deleteTempEntity,
@@ -254,6 +256,7 @@ module U.Codebase.Sqlite.Queries
     addUpdateBranchTable,
     addDerivedDependentsByDependencyIndex,
     addUpgradeBranchTable,
+    addSyncV3TempTables,
 
     -- ** schema version
     currentSchemaVersion,
@@ -498,6 +501,10 @@ addDerivedDependentsByDependencyIndex =
 addUpgradeBranchTable :: Transaction ()
 addUpgradeBranchTable =
   executeStatements $(embedProjectStringFile "sql/019-add-upgrade-branch-table.sql")
+
+addSyncV3TempTables :: Transaction ()
+addSyncV3TempTables =
+  executeStatements $(embedProjectStringFile "sql/020-add-sync-v3-temp-tables.sql")
 
 schemaVersion :: Transaction SchemaVersion
 schemaVersion =
@@ -2232,6 +2239,16 @@ entityLocation hash =
         True -> Just EntityInTempStorage
         False -> Nothing
 
+entityLocationSyncV3 :: Hash32 -> Transaction (Maybe EntityLocation)
+entityLocationSyncV3 hash =
+  entityExists hash >>= \case
+    True -> pure (Just EntityInMainStorage)
+    False -> do
+      let theSql = [sql| SELECT EXISTS (SELECT 1 FROM syncv3_temp_entity WHERE entity_hash = :hash) |]
+      queryOneCol theSql <&> \case
+        True -> Just EntityInTempStorage
+        False -> Nothing
+
 -- | Does this entity already exist in the database, i.e. in the `object` or `causal` table?
 entityExists :: Hash32 -> Transaction Bool
 entityExists hash = do
@@ -2284,6 +2301,15 @@ insertTempEntity entityHash entity missingDependencies = do
     entityType :: TempEntityType
     entityType =
       Entity.entityType entity
+
+insertTempEntitySyncV3 :: Hash32 -> Text -> Hash32 -> Int32 -> ByteString -> Transaction ()
+insertTempEntitySyncV3 rootCausal entityKind entityHash entityDepth entityBlob = do
+  execute
+    [sql|
+      INSERT INTO syncv3_temp_entity (root_causal, entity_hash, entity_kind, entity_data, entity_depth)
+      VALUES (:rootCausal, :entityHash, :entityKind, :entityBlob, :entityDepth)
+      ON CONFLICT DO NOTHING
+    |]
 
 -- | Delete a row from the `temp_entity` table, if it exists.
 deleteTempEntity :: Hash32 -> Transaction ()
