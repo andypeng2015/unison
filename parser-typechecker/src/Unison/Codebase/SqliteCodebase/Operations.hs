@@ -85,6 +85,7 @@ createSchema = do
   Q.addUpdateBranchTable
   Q.addDerivedDependentsByDependencyIndex
   Q.addUpgradeBranchTable
+  Q.addSyncV3TempTables
   (_, emptyCausalHashId) <- emptyCausalHash
   (_, ProjectBranchRow {projectId, branchId}) <-
     insertProjectAndBranch scratchProjectName scratchBranchName emptyCausalHashId

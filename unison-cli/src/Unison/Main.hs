@@ -54,6 +54,7 @@ import Text.Megaparsec qualified as MP
 import U.Codebase.Sqlite.Queries qualified as Queries
 import Unison.Auth.CredentialManager qualified as AuthN
 import Unison.Auth.HTTPClient qualified as AuthN
+import Unison.Auth.Tokens (TokenProvider)
 import Unison.Auth.Tokens qualified as AuthN
 import Unison.Cli.ProjectUtils qualified as ProjectUtils
 import Unison.Codebase (Codebase, CodebasePath)
@@ -185,7 +186,8 @@ main version = do
                       let serverUrl = Nothing
                       let ucmVersion = Version.gitDescribeWithDate version
                       credMan <- liftIO $ AuthN.newCredentialManager
-                      authenticatedHTTPClient <- initTranscriptAuthenticatedHTTPClient ucmVersion credMan
+                      let tokenProvider = AuthN.newTokenProvider credMan
+                      authenticatedHTTPClient <- AuthN.newAuthenticatedHTTPClient tokenProvider ucmVersion
                       startProjectPath <- Codebase.runTransaction theCodebase Codebase.expectCurrentProjectPath
                       launch
                         version
@@ -195,6 +197,7 @@ main version = do
                         theCodebase
                         [Left fileEvent, Right $ Input.ExecuteI NoProf mainName args, Right Input.QuitI]
                         authenticatedHTTPClient
+                        tokenProvider
                         credMan
                         serverUrl
                         (PP.toIds startProjectPath)
@@ -213,7 +216,8 @@ main version = do
                   let serverUrl = Nothing
                   let ucmVersion = Version.gitDescribeWithDate version
                   credMan <- liftIO $ AuthN.newCredentialManager
-                  authenticatedHTTPClient <- initTranscriptAuthenticatedHTTPClient ucmVersion credMan
+                  let tokenProvider = AuthN.newTokenProvider credMan
+                  authenticatedHTTPClient <- AuthN.newAuthenticatedHTTPClient tokenProvider ucmVersion
                   startProjectPath <- Codebase.runTransaction theCodebase Codebase.expectCurrentProjectPath
                   launch
                     version
@@ -223,6 +227,7 @@ main version = do
                     theCodebase
                     [Left fileEvent, Right $ Input.ExecuteI NoProf mainName args, Right Input.QuitI]
                     authenticatedHTTPClient
+                    tokenProvider
                     credMan
                     serverUrl
                     (PP.toIds startProjectPath)
@@ -330,7 +335,8 @@ main version = do
               let isTest = False
               let ucmVersion = Version.gitDescribeWithDate version
               credMan <- liftIO $ AuthN.newCredentialManager
-              authenticatedHTTPClient <- initTranscriptAuthenticatedHTTPClient ucmVersion credMan
+              let tokenProvider = AuthN.newTokenProvider credMan
+              authenticatedHTTPClient <- AuthN.newAuthenticatedHTTPClient tokenProvider ucmVersion
               mcpServerConfig <- MCP.initServer theCodebase runtime sbRuntime (Just currentDir) ucmVersion authenticatedHTTPClient
               Server.startServer
                 isTest
@@ -374,6 +380,7 @@ main version = do
                         theCodebase
                         []
                         authenticatedHTTPClient
+                        tokenProvider
                         credMan
                         mayBaseUrl
                         (PP.toIds startingProjectPath)
@@ -596,6 +603,7 @@ launch ::
   Codebase.Codebase IO Symbol Ann ->
   [Either Input.Event Input.Input] ->
   AuthN.AuthenticatedHttpClient ->
+  TokenProvider ->
   AuthN.CredentialManager ->
   Maybe Server.BaseUrl ->
   PP.ProjectPathIds ->
@@ -603,7 +611,7 @@ launch ::
   (PP.ProjectPathIds -> IO ()) ->
   CommandLine.ShouldWatchFiles ->
   IO ()
-launch version dir runtime sbRuntime codebase inputs authenticatedHTTPClient credMan serverBaseUrl startingPath initResult lspCheckForChanges shouldWatchFiles = do
+launch version dir runtime sbRuntime codebase inputs authenticatedHTTPClient tokenProvider credMan serverBaseUrl startingPath initResult lspCheckForChanges shouldWatchFiles = do
   showWelcomeHint <- Codebase.runTransaction codebase Queries.doProjectsExist
   let isNewCodebase = case initResult of
         CreatedCodebase -> NewlyCreatedCodebase
@@ -621,6 +629,7 @@ launch version dir runtime sbRuntime codebase inputs authenticatedHTTPClient cre
         serverBaseUrl
         ucmVersion
         authenticatedHTTPClient
+        tokenProvider
         credMan
         lspCheckForChanges
         shouldWatchFiles
