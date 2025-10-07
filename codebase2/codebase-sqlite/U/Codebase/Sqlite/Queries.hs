@@ -418,7 +418,7 @@ type TextPathSegments = [Text]
 -- * main squeeze
 
 currentSchemaVersion :: SchemaVersion
-currentSchemaVersion = 22
+currentSchemaVersion = 23
 
 runCreateSql :: Transaction ()
 runCreateSql =
@@ -4039,6 +4039,7 @@ streamTempEntitiesSyncV3 rootCausalHash action = do
   Sqlite.queryStreamRow @(Hash32, BL.ByteString)
     [sql|
     SELECT entity_hash, entity_data
+      FROM syncv3_temp_entity
       WHERE root_causal = :rootCausalHash
       ORDER BY entity_depth ASC
     |]
