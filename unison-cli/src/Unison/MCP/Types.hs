@@ -12,6 +12,7 @@ module Unison.MCP.Types
     ShareProjectReadmeToolArguments (..),
     ListLibraryDefinitionsToolArguments (..),
     ViewDefinitionsToolArguments (..),
+    UpdateDefinitionsToolArguments (..),
     SearchDefinitionsToolArguments (..),
     SearchByTypeToolArguments (..),
     DocsToolArguments (..),
@@ -72,6 +73,7 @@ data ToolKind
   | ListProjectLibrariesTool
   | ListLibraryDefinitionsTool
   | ViewDefinitionsTool
+  | UpdateDefinitionsTool
   | SearchDefinitionsTool
   | SearchByTypeTool
   | ListLocalProjectsTool
@@ -95,6 +97,7 @@ kindNameMapping =
       (ListProjectLibrariesTool, "list-project-libraries"),
       (ListLibraryDefinitionsTool, "list-library-definitions"),
       (ViewDefinitionsTool, "view-definitions"),
+      (UpdateDefinitionsTool, "update-definitions"),
       (SearchDefinitionsTool, "search-definitions-by-name"),
       (SearchByTypeTool, "search-by-type"),
       (ListLocalProjectsTool, "list-local-projects"),
@@ -268,6 +271,27 @@ instance FromJSON ViewDefinitionsToolArguments where
     projectContext <- o .: "projectContext"
     names <- fmap Name.unsafeParseText <$> o .: "names"
     pure $ ViewDefinitionsToolArguments {projectContext, names}
+
+data UpdateDefinitionsToolArguments = UpdateDefinitionsToolArguments
+  { projectContext :: ProjectContext
+  }
+  deriving (Eq, Show)
+
+instance HasInputSchema UpdateDefinitionsToolArguments where
+  toInputSchema _ =
+    object
+      [ "type" .= ("object" :: Text),
+        "properties"
+          .= object
+            [ "projectContext" .= toInputSchema (Proxy :: Proxy ProjectContext)
+            ],
+        "required" .= ["projectContext" :: Text]
+      ]
+
+instance FromJSON UpdateDefinitionsToolArguments where
+  parseJSON = withObject "UpdateDefinitionsToolArguments" $ \o -> do
+    projectContext <- o .: "projectContext"
+    pure $ UpdateDefinitionsToolArguments {projectContext}
 
 data ListLibraryDefinitionsToolArguments = ListLibraryDefinitionsToolArguments
   { projectContext :: ProjectContext,
