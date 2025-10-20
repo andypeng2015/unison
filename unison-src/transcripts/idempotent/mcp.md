@@ -50,7 +50,7 @@ RESPONSE:
       "result": {
           "content": [
               {
-                  "text": "{\"outputMessages\":[\"     Branch   Remote branch\\n1.   main     \"],\"sourceCodeUpdates\":[]}",
+                  "text": "{\"errorMessages\":[],\"outputMessages\":[\"     Branch   Remote branch\\n1.   main     \"],\"sourceCodeUpdates\":[]}",
                   "type": "text"
               }
           ],
@@ -87,7 +87,7 @@ RESPONSE:
       "result": {
           "content": [
               {
-                  "text": "{\"outputMessages\":[\"Loading changes detected in scratch.u.\",\"No changes found.\",\"  1 | > x = 1 + 2\\n        â§©\\n        3\"],\"sourceCodeUpdates\":[]}",
+                  "text": "{\"errorMessages\":[],\"outputMessages\":[\"Loading changes detected in scratch.u.\",\"No changes found.\",\"  1 | > x = 1 + 2\\n        â§©\\n        3\"],\"sourceCodeUpdates\":[]}",
                   "type": "text"
               }
           ],
@@ -124,7 +124,7 @@ RESPONSE:
       "result": {
           "content": [
               {
-                  "text": "{\"outputMessages\":[\"This is a scratch project for testing tools in MCP.\\n\\n\\n\"],\"sourceCodeUpdates\":[]}",
+                  "text": "{\"errorMessages\":[],\"outputMessages\":[\"This is a scratch project for testing tools in MCP.\\n\\n\\n\"],\"sourceCodeUpdates\":[]}",
                   "type": "text"
               }
           ],
@@ -161,7 +161,7 @@ RESPONSE:
       "result": {
           "content": [
               {
-                  "text": "{\"content\":[{\"text\":\"{\\\"outputMessages\\\":[\\\"1. myFailingTest : [Result]\\\\n2. myPassingTest : [Result]\\\\n3. myTerm : Nat\\\\n4. type MyType\\\\n5. MyType.MyConstructor : MyType\\\\n6. README : Doc2\\\\n\\\"],\\\"sourceCodeUpdates\\\":[]}\",\"type\":\"text\"}],\"isError\":false}",
+                  "text": "{\"content\":[{\"text\":\"{\\\"errorMessages\\\":[],\\\"outputMessages\\\":[\\\"1. myFailingTest : [Result]\\\\n2. myPassingTest : [Result]\\\\n3. myTerm : Nat\\\\n4. type MyType\\\\n5. MyType.MyConstructor : MyType\\\\n6. README : Doc2\\\\n\\\"],\\\"sourceCodeUpdates\\\":[]}\",\"type\":\"text\"}],\"isError\":false}",
                   "type": "text"
               }
           ],
@@ -198,7 +198,7 @@ RESPONSE:
       "result": {
           "content": [
               {
-                  "text": "{\"outputMessages\":[\"1. builtins. (840 terms, 121 types)\"],\"sourceCodeUpdates\":[]}",
+                  "text": "{\"errorMessages\":[],\"outputMessages\":[\"1. builtins. (840 terms, 121 types)\"],\"sourceCodeUpdates\":[]}",
                   "type": "text"
               }
           ],
@@ -232,7 +232,7 @@ RESPONSE:
       "result": {
           "content": [
               {
-                  "text": "{\"outputMessages\":[\"     Branch   Remote branch\\n1.   main     \"],\"sourceCodeUpdates\":[]}",
+                  "text": "{\"errorMessages\":[],\"outputMessages\":[\"     Branch   Remote branch\\n1.   main     \"],\"sourceCodeUpdates\":[]}",
                   "type": "text"
               }
           ],
@@ -269,7 +269,7 @@ RESPONSE:
       "result": {
           "content": [
               {
-                  "text": "{\"outputMessages\":[\"type MyType = MyConstructor\\n\\nmyTerm : Nat\\nmyTerm = 99\"],\"sourceCodeUpdates\":[]}",
+                  "text": "{\"errorMessages\":[],\"outputMessages\":[\"type MyType = MyConstructor\\n\\nmyTerm : Nat\\nmyTerm = 99\"],\"sourceCodeUpdates\":[]}",
                   "type": "text"
               }
           ],
@@ -306,7 +306,7 @@ RESPONSE:
       "result": {
           "content": [
               {
-                  "text": "{\"outputMessages\":[\"1. myFailingTest : [Result]\\n2. myPassingTest : [Result]\\n3. myTerm : Nat\\n4. type MyType\\n5. MyType.MyConstructor : MyType\\n\"],\"sourceCodeUpdates\":[]}",
+                  "text": "{\"errorMessages\":[],\"outputMessages\":[\"1. myFailingTest : [Result]\\n2. myPassingTest : [Result]\\n3. myTerm : Nat\\n4. type MyType\\n5. MyType.MyConstructor : MyType\\n\"],\"sourceCodeUpdates\":[]}",
                   "type": "text"
               }
           ],
@@ -343,7 +343,7 @@ RESPONSE:
       "result": {
           "content": [
               {
-                  "text": "{\"outputMessages\":[\"1. myTerm : Nat\\n\"],\"sourceCodeUpdates\":[]}",
+                  "text": "{\"errorMessages\":[],\"outputMessages\":[\"1. myTerm : Nat\\n\"],\"sourceCodeUpdates\":[]}",
                   "type": "text"
               }
           ],
@@ -412,7 +412,89 @@ RESPONSE:
       "result": {
           "content": [
               {
-                  "text": "{\"outputMessages\":[\"Cached test results (`help testcache` to learn more)\\n\\n  1. myPassingTest   â passing\\n\\n  2. myFailingTest   â failing\\n\\nð« 1 test(s) failing, â 1 test(s) passing\\n\\nTip: Use view 1 to view the source of a test.\"],\"sourceCodeUpdates\":[]}",
+                  "text": "{\"errorMessages\":[],\"outputMessages\":[\"Cached test results (`help testcache` to learn more)\\n\\n  1. myPassingTest   â passing\\n\\n  2. myFailingTest   â failing\\n\\nð« 1 test(s) failing, â 1 test(s) passing\\n\\nTip: Use view 1 to view the source of a test.\"],\"sourceCodeUpdates\":[]}",
+                  "type": "text"
+              }
+          ],
+          "isError": false
+      }
+  }
+
+```
+
+## update-definitions
+
+MCP can't edit branches unless they are marked as editable.
+
+``` api
+POST /mcp
+BODY:
+  {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "tools/call",
+    "params": {
+      "name": "update-definitions",
+      "arguments": {
+        "projectContext": {
+          "projectName": "scratch",
+          "branchName": "uneditable"
+        }, "code": {"text": "myTerm = 100"}
+      }
+    }
+  }
+
+RESPONSE:
+  {
+      "id": 1,
+      "jsonrpc": "2.0",
+      "result": {
+          "content": [
+              {
+                  "text": "The provided project-branch is not editable.\nPlease ask the user to allow edits to this project in their MCP configuration by adding `--mcp-editable-branches=scratch/uneditable` to the invocation of the Unison mcp within their agent's mcp configuration.",
+                  "type": "text"
+              }
+          ],
+          "isError": true
+      }
+  }
+
+```
+
+Transcripts allow mcp-editing on `agent-*` branches.
+
+``` ucm
+scratch/agent-foo> builtins.merge lib.builtins
+
+  Done.
+```
+
+``` api
+POST /mcp
+BODY:
+  {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "tools/call",
+    "params": {
+      "name": "update-definitions",
+      "arguments": {
+        "projectContext": {
+          "projectName": "scratch",
+          "branchName": "agent-foo"
+        }, "code": {"text": "myTerm = 100"}
+      }
+    }
+  }
+
+RESPONSE:
+  {
+      "id": 1,
+      "jsonrpc": "2.0",
+      "result": {
+          "content": [
+              {
+                  "text": "{\"errorMessages\":[],\"outputMessages\":[\"Loading changes detected in scratch.u.\",\"+ myTerm : Nat\\n\\nRun `update` to apply these changes to your codebase.\",\"Done.\"],\"sourceCodeUpdates\":[]}",
                   "type": "text"
               }
           ],
