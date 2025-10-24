@@ -105,7 +105,7 @@ cliToMCP projCtx onError cli = do
         if (Output.isFailure output)
           then do
             atomically $ modifyTVar errorsVar (<> Seq.singleton pretty)
-            liftIO $ onError (Text.pack (Pretty.toPlain 0 pretty))
+            liftIO $ onError (Pretty.toPlain 0 pretty)
           else do
             atomically $ modifyTVar outputVar (<> Seq.singleton pretty)
   let notifyNumbered output = do
@@ -159,7 +159,7 @@ cliToMCP projCtx onError cli = do
             & toList
     let errorMessages =
           errs
-            & fmap (Text.pack . Pretty.toPlain 0)
+            & fmap (Pretty.toPlain 0)
             & toList
     pure $
       ( CliOutput
