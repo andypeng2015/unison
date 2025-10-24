@@ -337,7 +337,6 @@ updateTool =
         withCode code [Input.Update2I] projectContext
     }
 
-
 listLocalProjectsTool :: Tool MCP
 listLocalProjectsTool =
   Tool
