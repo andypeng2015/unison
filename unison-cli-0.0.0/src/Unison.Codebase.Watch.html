@@ -1,0 +1,363 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd"><html xmlns="http://www.w3.org/1999/xhtml"><head><link rel="stylesheet" type="text/css" href="style.css" /><script type="text/javascript" src="highlight.js"></script></head><body><pre><span class="hs-keyword">module</span><span> </span><span class="hs-identifier">Unison.Codebase.Watch</span><span>
+</span><span id="line-2"></span><span>  </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="Unison.Codebase.Watch.html#watchDirectory"><span class="hs-identifier">watchDirectory</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-3"></span><span>  </span><span class="hs-special">)</span><span>
+</span><span id="line-4"></span><span class="hs-keyword">where</span><span>
+</span><span id="line-5"></span><span>
+</span><span id="line-6"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><span class="hs-identifier">Control.Concurrent</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier">threadDelay</span></span><span class="hs-special">)</span><span>
+</span><span id="line-7"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><span class="hs-identifier">Control.Concurrent.STM</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier">STM</span></span><span class="hs-special">)</span><span>
+</span><span id="line-8"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><span class="hs-identifier">Control.Concurrent.STM</span></span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">STM</span></span><span>
+</span><span id="line-9"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><span class="hs-identifier">Control.Exception</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier">MaskingState</span></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-10"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><span class="hs-identifier">Data.IORef</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier">newIORef</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier">readIORef</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier">writeIORef</span></span><span class="hs-special">)</span><span>
+</span><span id="line-11"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><span class="hs-identifier">Data.Map</span></span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">Map</span></span><span>
+</span><span id="line-12"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><span class="hs-identifier">Data.Time.Clock</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier">UTCTime</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier">diffUTCTime</span></span><span class="hs-special">)</span><span>
+</span><span id="line-13"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><span class="hs-identifier">GHC.Conc</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier">registerDelay</span></span><span class="hs-special">)</span><span>
+</span><span id="line-14"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><span class="hs-identifier">GHC.IO</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier">unsafeUnmask</span></span><span class="hs-special">)</span><span>
+</span><span id="line-15"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><span class="hs-identifier">Ki</span></span><span> </span><span class="hs-keyword">qualified</span><span>
+</span><span id="line-16"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><span class="hs-identifier">System.FSNotify</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier">Event</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier">Added</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier">Modified</span></span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-17"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><span class="hs-identifier">System.FSNotify</span></span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">FSNotify</span></span><span>
+</span><span id="line-18"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><span class="hs-identifier">Unison.Prelude</span></span><span>
+</span><span id="line-19"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><span class="hs-identifier">UnliftIO.Exception</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier">finally</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier">tryAny</span></span><span class="hs-special">)</span><span>
+</span><span id="line-20"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><span class="hs-identifier">UnliftIO.STM</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier">atomically</span></span><span class="hs-special">)</span><span>
+</span><span id="line-21"></span><span>
+</span><span id="line-22"></span><span class="annot"><a href="Unison.Codebase.Watch.html#watchDirectory"><span class="hs-identifier hs-type">watchDirectory</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Ki.Scope</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">FSNotify.WatchManager</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">FilePath</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier hs-type">FilePath</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Bool</span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">IO</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier hs-type">IO</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier hs-type">FilePath</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Text</span></span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-23"></span><span id="watchDirectory"><span class="annot"><span class="annottext">watchDirectory :: Scope
+-&gt; WatchManager
+-&gt; FilePath
+-&gt; (FilePath -&gt; Bool)
+-&gt; IO (IO (FilePath, Text))
+</span><a href="Unison.Codebase.Watch.html#watchDirectory"><span class="hs-identifier hs-var hs-var">watchDirectory</span></a></span></span><span> </span><span id="local-6989586621681197239"><span class="annot"><span class="annottext">Scope
+</span><a href="#local-6989586621681197239"><span class="hs-identifier hs-var">scope</span></a></span></span><span> </span><span id="local-6989586621681197240"><span class="annot"><span class="annottext">WatchManager
+</span><a href="#local-6989586621681197240"><span class="hs-identifier hs-var">mgr</span></a></span></span><span> </span><span id="local-6989586621681197241"><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621681197241"><span class="hs-identifier hs-var">dir</span></a></span></span><span> </span><span id="local-6989586621681197242"><span class="annot"><span class="annottext">FilePath -&gt; Bool
+</span><a href="#local-6989586621681197242"><span class="hs-identifier hs-var">allow</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-24"></span><span>  </span><span id="local-6989586621681197243"><span class="annot"><span class="annottext">STM (FilePath, UTCTime)
+</span><a href="#local-6989586621681197243"><span class="hs-identifier hs-var">readLatestEvent</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">Scope
+-&gt; WatchManager
+-&gt; FilePath
+-&gt; (FilePath -&gt; Bool)
+-&gt; IO (STM (FilePath, UTCTime))
+</span><a href="Unison.Codebase.Watch.html#forkDirWatcherThread"><span class="hs-identifier hs-var">forkDirWatcherThread</span></a></span><span> </span><span class="annot"><span class="annottext">Scope
+</span><a href="#local-6989586621681197239"><span class="hs-identifier hs-var">scope</span></a></span><span> </span><span class="annot"><span class="annottext">WatchManager
+</span><a href="#local-6989586621681197240"><span class="hs-identifier hs-var">mgr</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621681197241"><span class="hs-identifier hs-var">dir</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; Bool
+</span><a href="#local-6989586621681197242"><span class="hs-identifier hs-var">allow</span></a></span><span>
+</span><span id="line-25"></span><span>
+</span><span id="line-26"></span><span>  </span><span class="hs-comment">-- Await an event from the event queue with the following simple debounce logic, which is intended to work around the</span><span>
+</span><span id="line-27"></span><span>  </span><span class="hs-comment">-- tendency for modern editors to create a flurry of rapid filesystem events when a file is saved:</span><span>
+</span><span id="line-28"></span><span>  </span><span class="hs-comment">--</span><span>
+</span><span id="line-29"></span><span>  </span><span class="hs-comment">-- 1. Block until an event arrives that occurred within the last second (which allows us to ignore old filesystem</span><span>
+</span><span id="line-30"></span><span>  </span><span class="hs-comment">--    events that may have buffered during a long-running IO action).</span><span>
+</span><span id="line-31"></span><span>  </span><span class="hs-comment">-- 2. Keep consuming events until 50ms elapse without an event.</span><span>
+</span><span id="line-32"></span><span>  </span><span class="hs-comment">-- 3. Return only the last event.</span><span>
+</span><span id="line-33"></span><span>  </span><span class="hs-comment">--</span><span>
+</span><span id="line-34"></span><span>  </span><span class="hs-comment">-- Note we don't have any smarts here for a flurry of events that are related to more than one file; we just throw</span><span>
+</span><span id="line-35"></span><span>  </span><span class="hs-comment">-- everything away except the last event. In practice, this has seemed to work fine.</span><span>
+</span><span id="line-36"></span><span>  </span><span class="hs-keyword">let</span><span> </span><span class="annot"><a href="#local-6989586621681197245"><span class="hs-identifier hs-type">awaitEvent0</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><span class="hs-identifier hs-type">IO</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier hs-type">FilePath</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier hs-type">UTCTime</span></span><span class="hs-special">)</span><span>
+</span><span id="line-37"></span><span>      </span><span id="local-6989586621681197245"><span class="annot"><span class="annottext">awaitEvent0 :: IO (FilePath, UTCTime)
+</span><a href="#local-6989586621681197245"><span class="hs-identifier hs-var hs-var">awaitEvent0</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-38"></span><span>        </span><span class="hs-keyword">let</span><span> </span><span class="annot"><a href="#local-6989586621681197246"><span class="hs-identifier hs-type">go</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier hs-type">FilePath</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier hs-type">UTCTime</span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">IO</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier hs-type">FilePath</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier hs-type">UTCTime</span></span><span class="hs-special">)</span><span>
+</span><span id="line-39"></span><span>            </span><span id="local-6989586621681197246"><span class="annot"><span class="annottext">go :: (FilePath, UTCTime) -&gt; IO (FilePath, UTCTime)
+</span><a href="#local-6989586621681197246"><span class="hs-identifier hs-var hs-var">go</span></a></span></span><span> </span><span id="local-6989586621681197247"><span class="annot"><span class="annottext">(FilePath, UTCTime)
+</span><a href="#local-6989586621681197247"><span class="hs-identifier hs-var">event0</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-40"></span><span>              </span><span id="local-6989586621681197248"><span class="annot"><span class="annottext">TVar Bool
+</span><a href="#local-6989586621681197248"><span class="hs-identifier hs-var">var</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">Int -&gt; IO (TVar Bool)
+</span><span class="hs-identifier hs-var">registerDelay</span></span><span> </span><span class="annot"><span class="annottext">Int
+</span><span class="hs-number">50_000</span></span><span>
+</span><span id="line-41"></span><span>              </span><span class="hs-special">(</span><span class="annot"><span class="annottext">IO (IO (FilePath, UTCTime)) -&gt; IO (FilePath, UTCTime)
+forall (m :: * -&gt; *) a. Monad m =&gt; m (m a) -&gt; m a
+</span><span class="hs-identifier hs-var">join</span></span><span> </span><span class="annot"><span class="annottext">(IO (IO (FilePath, UTCTime)) -&gt; IO (FilePath, UTCTime))
+-&gt; ([STM (IO (FilePath, UTCTime))] -&gt; IO (IO (FilePath, UTCTime)))
+-&gt; [STM (IO (FilePath, UTCTime))]
+-&gt; IO (FilePath, UTCTime)
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><span class="hs-operator hs-var">.</span></span><span> </span><span class="annot"><span class="annottext">STM (IO (FilePath, UTCTime)) -&gt; IO (IO (FilePath, UTCTime))
+forall (m :: * -&gt; *) a. MonadIO m =&gt; STM a -&gt; m a
+</span><span class="hs-identifier hs-var">atomically</span></span><span> </span><span class="annot"><span class="annottext">(STM (IO (FilePath, UTCTime)) -&gt; IO (IO (FilePath, UTCTime)))
+-&gt; ([STM (IO (FilePath, UTCTime))] -&gt; STM (IO (FilePath, UTCTime)))
+-&gt; [STM (IO (FilePath, UTCTime))]
+-&gt; IO (IO (FilePath, UTCTime))
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><span class="hs-operator hs-var">.</span></span><span> </span><span class="annot"><span class="annottext">[STM (IO (FilePath, UTCTime))] -&gt; STM (IO (FilePath, UTCTime))
+forall (t :: * -&gt; *) (f :: * -&gt; *) a.
+(Foldable t, Alternative f) =&gt;
+t (f a) -&gt; f a
+</span><span class="hs-identifier hs-var">asum</span></span><span class="hs-special">)</span><span>
+</span><span id="line-42"></span><span>                </span><span class="hs-special">[</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-43"></span><span>                    </span><span id="local-6989586621681197251"><span class="annot"><span class="annottext">(FilePath, UTCTime)
+</span><a href="#local-6989586621681197251"><span class="hs-identifier hs-var">event1</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">STM (FilePath, UTCTime)
+</span><a href="#local-6989586621681197243"><span class="hs-identifier hs-var">readLatestEvent</span></a></span><span>
+</span><span id="line-44"></span><span>                    </span><span class="annot"><span class="annottext">IO (FilePath, UTCTime) -&gt; STM (IO (FilePath, UTCTime))
+forall a. a -&gt; STM a
+forall (f :: * -&gt; *) a. Applicative f =&gt; a -&gt; f a
+</span><span class="hs-identifier hs-var">pure</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">(FilePath, UTCTime) -&gt; IO (FilePath, UTCTime)
+</span><a href="#local-6989586621681197246"><span class="hs-identifier hs-var">go</span></a></span><span> </span><span class="annot"><span class="annottext">(FilePath, UTCTime)
+</span><a href="#local-6989586621681197251"><span class="hs-identifier hs-var">event1</span></a></span><span class="hs-special">)</span><span class="hs-special">,</span><span>
+</span><span id="line-45"></span><span>                  </span><span class="hs-keyword">do</span><span>
+</span><span id="line-46"></span><span>                    </span><span class="annot"><span class="annottext">TVar Bool -&gt; STM Bool
+forall a. TVar a -&gt; STM a
+</span><span class="hs-identifier hs-var">STM.readTVar</span></span><span> </span><span class="annot"><span class="annottext">TVar Bool
+</span><a href="#local-6989586621681197248"><span class="hs-identifier hs-var">var</span></a></span><span> </span><span class="annot"><span class="annottext">STM Bool -&gt; (Bool -&gt; STM ()) -&gt; STM ()
+forall a b. STM a -&gt; (a -&gt; STM b) -&gt; STM b
+forall (m :: * -&gt; *) a b. Monad m =&gt; m a -&gt; (a -&gt; m b) -&gt; m b
+</span><span class="hs-operator hs-var">&gt;&gt;=</span></span><span> </span><span class="annot"><span class="annottext">Bool -&gt; STM ()
+</span><span class="hs-identifier hs-var">STM.check</span></span><span>
+</span><span id="line-47"></span><span>                    </span><span class="annot"><span class="annottext">IO (FilePath, UTCTime) -&gt; STM (IO (FilePath, UTCTime))
+forall a. a -&gt; STM a
+forall (f :: * -&gt; *) a. Applicative f =&gt; a -&gt; f a
+</span><span class="hs-identifier hs-var">pure</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">(FilePath, UTCTime) -&gt; IO (FilePath, UTCTime)
+forall a. a -&gt; IO a
+forall (f :: * -&gt; *) a. Applicative f =&gt; a -&gt; f a
+</span><span class="hs-identifier hs-var">pure</span></span><span> </span><span class="annot"><span class="annottext">(FilePath, UTCTime)
+</span><a href="#local-6989586621681197247"><span class="hs-identifier hs-var">event0</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-48"></span><span>                </span><span class="hs-special">]</span><span>
+</span><span id="line-49"></span><span>        </span><span id="local-6989586621681197254"><span class="annot"><span class="annottext">(FilePath, UTCTime)
+</span><a href="#local-6989586621681197254"><span class="hs-identifier hs-var">event</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">STM (FilePath, UTCTime) -&gt; IO (FilePath, UTCTime)
+forall (m :: * -&gt; *) a. MonadIO m =&gt; STM a -&gt; m a
+</span><span class="hs-identifier hs-var">atomically</span></span><span> </span><span class="annot"><span class="annottext">STM (FilePath, UTCTime)
+</span><a href="#local-6989586621681197243"><span class="hs-identifier hs-var">readLatestEvent</span></a></span><span>
+</span><span id="line-50"></span><span>        </span><span class="annot"><span class="annottext">(FilePath, UTCTime) -&gt; IO (FilePath, UTCTime)
+</span><a href="#local-6989586621681197246"><span class="hs-identifier hs-var">go</span></a></span><span> </span><span class="annot"><span class="annottext">(FilePath, UTCTime)
+</span><a href="#local-6989586621681197254"><span class="hs-identifier hs-var">event</span></a></span><span>
+</span><span id="line-51"></span><span>
+</span><span id="line-52"></span><span>  </span><span class="hs-comment">-- Enhance the previous &quot;await event&quot; action with a small file cache that serves as a second debounce implementation.</span><span>
+</span><span id="line-53"></span><span>  </span><span class="hs-comment">-- We keep in memory the file contents of previously-saved files, so that we can avoid emitting events for files that</span><span>
+</span><span id="line-54"></span><span>  </span><span class="hs-comment">-- last changed less than 500ms ago, and whose contents haven't changed.</span><span>
+</span><span id="line-55"></span><span>  </span><span id="local-6989586621681197255"><span class="annot"><span class="annottext">IORef (Map FilePath (Text, UTCTime))
+</span><a href="#local-6989586621681197255"><span class="hs-identifier hs-var">previousFilesRef</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">Map FilePath (Text, UTCTime)
+-&gt; IO (IORef (Map FilePath (Text, UTCTime)))
+forall a. a -&gt; IO (IORef a)
+</span><span class="hs-identifier hs-var">newIORef</span></span><span> </span><span class="annot"><span class="annottext">Map FilePath (Text, UTCTime)
+forall k a. Map k a
+</span><span class="hs-identifier hs-var">Map.empty</span></span><span>
+</span><span id="line-56"></span><span>  </span><span class="hs-keyword">let</span><span> </span><span class="annot"><a href="#local-6989586621681197257"><span class="hs-identifier hs-type">awaitEvent1</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><span class="hs-identifier hs-type">IO</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier hs-type">FilePath</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Text</span></span><span class="hs-special">)</span><span>
+</span><span id="line-57"></span><span>      </span><span id="local-6989586621681197257"><span class="annot"><span class="annottext">awaitEvent1 :: IO (FilePath, Text)
+</span><a href="#local-6989586621681197257"><span class="hs-identifier hs-var hs-var">awaitEvent1</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-58"></span><span>        </span><span class="hs-special">(</span><span id="local-6989586621681197258"><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621681197258"><span class="hs-identifier hs-var">file</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621681197259"><span class="annot"><span class="annottext">UTCTime
+</span><a href="#local-6989586621681197259"><span class="hs-identifier hs-var">t</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">IO (FilePath, UTCTime)
+</span><a href="#local-6989586621681197245"><span class="hs-identifier hs-var">awaitEvent0</span></a></span><span>
+</span><span id="line-59"></span><span>        </span><span class="annot"><span class="annottext">IO Text -&gt; IO (Either SomeException Text)
+forall (m :: * -&gt; *) a.
+MonadUnliftIO m =&gt;
+m a -&gt; m (Either SomeException a)
+</span><span class="hs-identifier hs-var">tryAny</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">FilePath -&gt; IO Text
+</span><span class="hs-identifier hs-var">readUtf8</span></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621681197258"><span class="hs-identifier hs-var">file</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">IO (Either SomeException Text)
+-&gt; (Either SomeException Text -&gt; IO (FilePath, Text))
+-&gt; IO (FilePath, Text)
+forall a b. IO a -&gt; (a -&gt; IO b) -&gt; IO b
+forall (m :: * -&gt; *) a b. Monad m =&gt; m a -&gt; (a -&gt; m b) -&gt; m b
+</span><span class="hs-operator hs-var">&gt;&gt;=</span></span><span> </span><span class="hs-glyph">\</span><span class="hs-glyph">case</span><span>
+</span><span id="line-60"></span><span>          </span><span class="hs-comment">-- Somewhat-expected read error from a file that was just written. Just ignore the event and try again.</span><span>
+</span><span id="line-61"></span><span>          </span><span class="annot"><span class="hs-identifier hs-type">Left</span></span><span> </span><span class="annot"><span class="annottext">SomeException
+</span><span class="hs-identifier">_</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">IO (FilePath, Text)
+</span><a href="#local-6989586621681197257"><span class="hs-identifier hs-var">awaitEvent1</span></a></span><span>
+</span><span id="line-62"></span><span>          </span><span class="annot"><span class="hs-identifier hs-type">Right</span></span><span> </span><span id="local-6989586621681197261"><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621681197261"><span class="hs-identifier hs-var">contents</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-63"></span><span>            </span><span id="local-6989586621681197262"><span class="annot"><span class="annottext">Map FilePath (Text, UTCTime)
+</span><a href="#local-6989586621681197262"><span class="hs-identifier hs-var">previousFiles</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">IORef (Map FilePath (Text, UTCTime))
+-&gt; IO (Map FilePath (Text, UTCTime))
+forall a. IORef a -&gt; IO a
+</span><span class="hs-identifier hs-var">readIORef</span></span><span> </span><span class="annot"><span class="annottext">IORef (Map FilePath (Text, UTCTime))
+</span><a href="#local-6989586621681197255"><span class="hs-identifier hs-var">previousFilesRef</span></a></span><span>
+</span><span id="line-64"></span><span>            </span><span class="hs-keyword">case</span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; Map FilePath (Text, UTCTime) -&gt; Maybe (Text, UTCTime)
+forall k a. Ord k =&gt; k -&gt; Map k a -&gt; Maybe a
+</span><span class="hs-identifier hs-var">Map.lookup</span></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621681197258"><span class="hs-identifier hs-var">file</span></a></span><span> </span><span class="annot"><span class="annottext">Map FilePath (Text, UTCTime)
+</span><a href="#local-6989586621681197262"><span class="hs-identifier hs-var">previousFiles</span></a></span><span> </span><span class="hs-keyword">of</span><span>
+</span><span id="line-65"></span><span>              </span><span class="annot"><span class="hs-identifier hs-type">Just</span></span><span> </span><span class="hs-special">(</span><span id="local-6989586621681197264"><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621681197264"><span class="hs-identifier hs-var">contents0</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621681197265"><span class="annot"><span class="annottext">UTCTime
+</span><a href="#local-6989586621681197265"><span class="hs-identifier hs-var">t0</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621681197261"><span class="hs-identifier hs-var">contents</span></a></span><span> </span><span class="annot"><span class="annottext">Text -&gt; Text -&gt; Bool
+forall a. Eq a =&gt; a -&gt; a -&gt; Bool
+</span><span class="hs-operator hs-var">==</span></span><span> </span><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621681197264"><span class="hs-identifier hs-var">contents0</span></a></span><span> </span><span class="annot"><span class="annottext">Bool -&gt; Bool -&gt; Bool
+</span><span class="hs-operator hs-var">&amp;&amp;</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">UTCTime
+</span><a href="#local-6989586621681197259"><span class="hs-identifier hs-var">t</span></a></span><span> </span><span class="annot"><span class="annottext">UTCTime -&gt; UTCTime -&gt; NominalDiffTime
+</span><span class="hs-operator hs-var">`diffUTCTime`</span></span><span> </span><span class="annot"><span class="annottext">UTCTime
+</span><a href="#local-6989586621681197265"><span class="hs-identifier hs-var">t0</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">NominalDiffTime -&gt; NominalDiffTime -&gt; Bool
+forall a. Ord a =&gt; a -&gt; a -&gt; Bool
+</span><span class="hs-operator hs-var">&lt;</span></span><span> </span><span class="annot"><span class="annottext">NominalDiffTime
+</span><span class="hs-number">0.5</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">IO (FilePath, Text)
+</span><a href="#local-6989586621681197257"><span class="hs-identifier hs-var">awaitEvent1</span></a></span><span>
+</span><span id="line-66"></span><span>              </span><span class="annot"><span class="annottext">Maybe (Text, UTCTime)
+</span><span class="hs-identifier">_</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-67"></span><span>                </span><span class="annot"><span class="annottext">IORef (Map FilePath (Text, UTCTime))
+-&gt; Map FilePath (Text, UTCTime) -&gt; IO ()
+forall a. IORef a -&gt; a -&gt; IO ()
+</span><span class="hs-identifier hs-var">writeIORef</span></span><span> </span><span class="annot"><span class="annottext">IORef (Map FilePath (Text, UTCTime))
+</span><a href="#local-6989586621681197255"><span class="hs-identifier hs-var">previousFilesRef</span></a></span><span> </span><span class="annot"><span class="annottext">(Map FilePath (Text, UTCTime) -&gt; IO ())
+-&gt; Map FilePath (Text, UTCTime) -&gt; IO ()
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$!</span></span><span> </span><span class="annot"><span class="annottext">FilePath
+-&gt; (Text, UTCTime)
+-&gt; Map FilePath (Text, UTCTime)
+-&gt; Map FilePath (Text, UTCTime)
+forall k a. Ord k =&gt; k -&gt; a -&gt; Map k a -&gt; Map k a
+</span><span class="hs-identifier hs-var">Map.insert</span></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621681197258"><span class="hs-identifier hs-var">file</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621681197261"><span class="hs-identifier hs-var">contents</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">UTCTime
+</span><a href="#local-6989586621681197259"><span class="hs-identifier hs-var">t</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Map FilePath (Text, UTCTime)
+</span><a href="#local-6989586621681197262"><span class="hs-identifier hs-var">previousFiles</span></a></span><span>
+</span><span id="line-68"></span><span>                </span><span class="annot"><span class="annottext">(FilePath, Text) -&gt; IO (FilePath, Text)
+forall a. a -&gt; IO a
+forall (f :: * -&gt; *) a. Applicative f =&gt; a -&gt; f a
+</span><span class="hs-identifier hs-var">pure</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621681197258"><span class="hs-identifier hs-var">file</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621681197261"><span class="hs-identifier hs-var">contents</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-69"></span><span>
+</span><span id="line-70"></span><span>  </span><span class="annot"><span class="annottext">IO (FilePath, Text) -&gt; IO (IO (FilePath, Text))
+forall a. a -&gt; IO a
+forall (f :: * -&gt; *) a. Applicative f =&gt; a -&gt; f a
+</span><span class="hs-identifier hs-var">pure</span></span><span> </span><span class="annot"><span class="annottext">IO (FilePath, Text)
+</span><a href="#local-6989586621681197257"><span class="hs-identifier hs-var">awaitEvent1</span></a></span><span>
+</span><span id="line-71"></span><span>
+</span><span id="line-72"></span><span class="hs-comment">-- | `forkDirWatcherThread scope mgr dir allow` forks a background thread into `scope` that, using &quot;file watcher</span><span>
+</span><span id="line-73"></span><span class="hs-comment">-- manager&quot; `mgr` (just a boilerplate argument the caller is responsible for creating), watches directory `dir` for</span><span>
+</span><span id="line-74"></span><span class="hs-comment">-- all &quot;added&quot; and &quot;modified&quot; filesystem events that occur on files that pass the `allow` predicate. It returns an STM</span><span>
+</span><span id="line-75"></span><span class="hs-comment">-- action that reads (and clears) the latest event, blocking if one isn't available.</span><span>
+</span><span id="line-76"></span><span class="annot"><a href="Unison.Codebase.Watch.html#forkDirWatcherThread"><span class="hs-identifier hs-type">forkDirWatcherThread</span></a></span><span> </span><span class="hs-glyph">::</span><span>
+</span><span id="line-77"></span><span>  </span><span class="annot"><span class="hs-identifier hs-type">Ki.Scope</span></span><span> </span><span class="hs-glyph">-&gt;</span><span>
+</span><span id="line-78"></span><span>  </span><span class="annot"><span class="hs-identifier hs-type">FSNotify.WatchManager</span></span><span> </span><span class="hs-glyph">-&gt;</span><span>
+</span><span id="line-79"></span><span>  </span><span class="annot"><span class="hs-identifier hs-type">FilePath</span></span><span> </span><span class="hs-glyph">-&gt;</span><span>
+</span><span id="line-80"></span><span>  </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier hs-type">FilePath</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Bool</span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span>
+</span><span id="line-81"></span><span>  </span><span class="annot"><span class="hs-identifier hs-type">IO</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier hs-type">STM</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier hs-type">FilePath</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier hs-type">UTCTime</span></span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-82"></span><span id="forkDirWatcherThread"><span class="annot"><span class="annottext">forkDirWatcherThread :: Scope
+-&gt; WatchManager
+-&gt; FilePath
+-&gt; (FilePath -&gt; Bool)
+-&gt; IO (STM (FilePath, UTCTime))
+</span><a href="Unison.Codebase.Watch.html#forkDirWatcherThread"><span class="hs-identifier hs-var hs-var">forkDirWatcherThread</span></a></span></span><span> </span><span id="local-6989586621681197270"><span class="annot"><span class="annottext">Scope
+</span><a href="#local-6989586621681197270"><span class="hs-identifier hs-var">scope</span></a></span></span><span> </span><span id="local-6989586621681197271"><span class="annot"><span class="annottext">WatchManager
+</span><a href="#local-6989586621681197271"><span class="hs-identifier hs-var">mgr</span></a></span></span><span> </span><span id="local-6989586621681197272"><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621681197272"><span class="hs-identifier hs-var">dir</span></a></span></span><span> </span><span id="local-6989586621681197273"><span class="annot"><span class="annottext">FilePath -&gt; Bool
+</span><a href="#local-6989586621681197273"><span class="hs-identifier hs-var">allow</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-83"></span><span>  </span><span id="local-6989586621681197274"><span class="annot"><span class="annottext">TVar (Maybe (FilePath, UTCTime))
+</span><a href="#local-6989586621681197274"><span class="hs-identifier hs-var">latestEventVar</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">Maybe (FilePath, UTCTime) -&gt; IO (TVar (Maybe (FilePath, UTCTime)))
+forall a. a -&gt; IO (TVar a)
+</span><span class="hs-identifier hs-var">STM.newTVarIO</span></span><span> </span><span class="annot"><span class="annottext">Maybe (FilePath, UTCTime)
+forall a. Maybe a
+</span><span class="hs-identifier hs-var">Nothing</span></span><span>
+</span><span id="line-84"></span><span>
+</span><span id="line-85"></span><span>  </span><span class="hs-keyword">let</span><span> </span><span class="annot"><a href="#local-6989586621681197276"><span class="hs-identifier hs-type">handler</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Event</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">IO</span></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span><span>
+</span><span id="line-86"></span><span>      </span><span id="local-6989586621681197276"><span class="annot"><span class="annottext">handler :: Event -&gt; IO ()
+</span><a href="#local-6989586621681197276"><span class="hs-identifier hs-var hs-var">handler</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-glyph">\</span><span class="hs-glyph">case</span><span>
+</span><span id="line-87"></span><span>        </span><span class="annot"><span class="hs-identifier hs-type">Added</span></span><span> </span><span id="local-6989586621681197277"><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621681197277"><span class="hs-identifier hs-var">fp</span></a></span></span><span> </span><span id="local-6989586621681197278"><span class="annot"><span class="annottext">UTCTime
+</span><a href="#local-6989586621681197278"><span class="hs-identifier hs-var">t</span></a></span></span><span> </span><span class="annot"><span class="annottext">EventIsDirectory
+</span><span class="hs-identifier hs-var">FSNotify.IsFile</span></span><span> </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; Bool
+</span><a href="#local-6989586621681197273"><span class="hs-identifier hs-var">allow</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621681197277"><span class="hs-identifier hs-var">fp</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">STM () -&gt; IO ()
+forall (m :: * -&gt; *) a. MonadIO m =&gt; STM a -&gt; m a
+</span><span class="hs-identifier hs-var">atomically</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">TVar (Maybe (FilePath, UTCTime))
+-&gt; Maybe (FilePath, UTCTime) -&gt; STM ()
+forall a. TVar a -&gt; a -&gt; STM ()
+</span><span class="hs-identifier hs-var">STM.writeTVar</span></span><span> </span><span class="annot"><span class="annottext">TVar (Maybe (FilePath, UTCTime))
+</span><a href="#local-6989586621681197274"><span class="hs-identifier hs-var">latestEventVar</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">(FilePath, UTCTime) -&gt; Maybe (FilePath, UTCTime)
+forall a. a -&gt; Maybe a
+</span><span class="hs-identifier hs-var">Just</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621681197277"><span class="hs-identifier hs-var">fp</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">UTCTime
+</span><a href="#local-6989586621681197278"><span class="hs-identifier hs-var">t</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-88"></span><span>        </span><span class="annot"><span class="hs-identifier hs-type">Modified</span></span><span> </span><span id="local-6989586621681197281"><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621681197281"><span class="hs-identifier hs-var">fp</span></a></span></span><span> </span><span id="local-6989586621681197282"><span class="annot"><span class="annottext">UTCTime
+</span><a href="#local-6989586621681197282"><span class="hs-identifier hs-var">t</span></a></span></span><span> </span><span class="annot"><span class="annottext">EventIsDirectory
+</span><span class="hs-identifier hs-var">FSNotify.IsFile</span></span><span> </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; Bool
+</span><a href="#local-6989586621681197273"><span class="hs-identifier hs-var">allow</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621681197281"><span class="hs-identifier hs-var">fp</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">STM () -&gt; IO ()
+forall (m :: * -&gt; *) a. MonadIO m =&gt; STM a -&gt; m a
+</span><span class="hs-identifier hs-var">atomically</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">TVar (Maybe (FilePath, UTCTime))
+-&gt; Maybe (FilePath, UTCTime) -&gt; STM ()
+forall a. TVar a -&gt; a -&gt; STM ()
+</span><span class="hs-identifier hs-var">STM.writeTVar</span></span><span> </span><span class="annot"><span class="annottext">TVar (Maybe (FilePath, UTCTime))
+</span><a href="#local-6989586621681197274"><span class="hs-identifier hs-var">latestEventVar</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">(FilePath, UTCTime) -&gt; Maybe (FilePath, UTCTime)
+forall a. a -&gt; Maybe a
+</span><span class="hs-identifier hs-var">Just</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621681197281"><span class="hs-identifier hs-var">fp</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">UTCTime
+</span><a href="#local-6989586621681197282"><span class="hs-identifier hs-var">t</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-89"></span><span>        </span><span class="annot"><span class="annottext">Event
+</span><span class="hs-identifier">_</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">() -&gt; IO ()
+forall a. a -&gt; IO a
+forall (f :: * -&gt; *) a. Applicative f =&gt; a -&gt; f a
+</span><span class="hs-identifier hs-var">pure</span></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span><span>
+</span><span id="line-90"></span><span>
+</span><span id="line-91"></span><span>  </span><span class="hs-comment">-- A bit of a &quot;one too many threads&quot; situation but there's not much we can easily do about it. The `fsnotify` API</span><span>
+</span><span id="line-92"></span><span>  </span><span class="hs-comment">-- doesn't expose any synchronous API; the only option is to fork a background thread with a callback. So, we spawn</span><span>
+</span><span id="line-93"></span><span>  </span><span class="hs-comment">-- a thread that spawns *that* thread, then waits forever. The purpose here is to simply leverage `ki` exception</span><span>
+</span><span id="line-94"></span><span>  </span><span class="hs-comment">-- propagation machinery to ensure that the `fsnotify` thread is properly cleaned up.</span><span>
+</span><span id="line-95"></span><span>  </span><span class="annot"><span class="annottext">Scope -&gt; ThreadOptions -&gt; IO Void -&gt; IO ()
+</span><span class="hs-identifier hs-var">Ki.forkWith_</span></span><span> </span><span class="annot"><span class="annottext">Scope
+</span><a href="#local-6989586621681197270"><span class="hs-identifier hs-var">scope</span></a></span><span> </span><span class="annot"><span class="annottext">ThreadOptions
+</span><span class="hs-identifier hs-var">Ki.defaultThreadOptions</span></span><span> </span><span class="hs-special">{</span><span class="annot"><span class="hs-identifier hs-var">Ki.maskingState</span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="hs-identifier hs-type">MaskedUninterruptible</span></span><span class="hs-special">}</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-96"></span><span>    </span><span class="hs-comment">-- The goal here is to prevent spawning this background watching thread before installing an exception handler that</span><span>
+</span><span id="line-97"></span><span>    </span><span class="hs-comment">-- guarantees it's killed. Unfortunately the fsnotify API doesn't seem to make that possible (hence the first</span><span>
+</span><span id="line-98"></span><span>    </span><span class="hs-comment">-- `unsafeUnmask` here), since we do need the thread *it* spawns to be killable, and (at least as of version</span><span>
+</span><span id="line-99"></span><span>    </span><span class="hs-comment">-- 0.4.2.0) they don't take care to guarantee that; it just inherits the masking state.</span><span>
+</span><span id="line-100"></span><span>    </span><span id="local-6989586621681197287"><span class="annot"><span class="annottext">IO ()
+</span><a href="#local-6989586621681197287"><span class="hs-identifier hs-var">stopListening</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">IO (IO ()) -&gt; IO (IO ())
+forall a. IO a -&gt; IO a
+</span><span class="hs-identifier hs-var">unsafeUnmask</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">WatchManager
+-&gt; FilePath -&gt; ActionPredicate -&gt; (Event -&gt; IO ()) -&gt; IO (IO ())
+</span><span class="hs-identifier hs-var">FSNotify.watchDir</span></span><span> </span><span class="annot"><span class="annottext">WatchManager
+</span><a href="#local-6989586621681197271"><span class="hs-identifier hs-var">mgr</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621681197272"><span class="hs-identifier hs-var">dir</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Bool -&gt; ActionPredicate
+forall a b. a -&gt; b -&gt; a
+</span><span class="hs-identifier hs-var">const</span></span><span> </span><span class="annot"><span class="annottext">Bool
+</span><span class="hs-identifier hs-var">True</span></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Event -&gt; IO ()
+</span><a href="#local-6989586621681197276"><span class="hs-identifier hs-var">handler</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">IO (IO ()) -&gt; IO (IO ()) -&gt; IO (IO ())
+forall a. IO a -&gt; IO a -&gt; IO a
+forall (f :: * -&gt; *) a. Alternative f =&gt; f a -&gt; f a -&gt; f a
+</span><span class="hs-operator hs-var">&lt;|&gt;</span></span><span> </span><span class="annot"><span class="annottext">IO () -&gt; IO (IO ())
+forall a. a -&gt; IO a
+forall (f :: * -&gt; *) a. Applicative f =&gt; a -&gt; f a
+</span><span class="hs-identifier hs-var">pure</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">() -&gt; IO ()
+forall a. a -&gt; IO a
+forall (f :: * -&gt; *) a. Applicative f =&gt; a -&gt; f a
+</span><span class="hs-identifier hs-var">pure</span></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-101"></span><span>    </span><span class="annot"><span class="annottext">IO Void -&gt; IO Void
+forall a. IO a -&gt; IO a
+</span><span class="hs-identifier hs-var">unsafeUnmask</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">IO () -&gt; IO Void
+forall (f :: * -&gt; *) a b. Applicative f =&gt; f a -&gt; f b
+</span><span class="hs-identifier hs-var">forever</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Int -&gt; IO ()
+</span><span class="hs-identifier hs-var">threadDelay</span></span><span> </span><span class="annot"><span class="annottext">Int
+forall a. Bounded a =&gt; a
+</span><span class="hs-identifier hs-var">maxBound</span></span><span class="hs-special">)</span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">IO Void -&gt; IO () -&gt; IO Void
+forall (m :: * -&gt; *) a b. MonadUnliftIO m =&gt; m a -&gt; m b -&gt; m a
+</span><span class="hs-operator hs-var">`finally`</span></span><span> </span><span class="annot"><span class="annottext">IO ()
+</span><a href="#local-6989586621681197287"><span class="hs-identifier hs-var">stopListening</span></a></span><span>
+</span><span id="line-102"></span><span>
+</span><span id="line-103"></span><span>  </span><span class="hs-keyword">let</span><span> </span><span id="local-6989586621681197293"><span class="annot"><span class="annottext">readLatestEvent :: STM (FilePath, UTCTime)
+</span><a href="#local-6989586621681197293"><span class="hs-identifier hs-var hs-var">readLatestEvent</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-104"></span><span>        </span><span class="annot"><span class="annottext">TVar (Maybe (FilePath, UTCTime)) -&gt; STM (Maybe (FilePath, UTCTime))
+forall a. TVar a -&gt; STM a
+</span><span class="hs-identifier hs-var">STM.readTVar</span></span><span> </span><span class="annot"><span class="annottext">TVar (Maybe (FilePath, UTCTime))
+</span><a href="#local-6989586621681197274"><span class="hs-identifier hs-var">latestEventVar</span></a></span><span> </span><span class="annot"><span class="annottext">STM (Maybe (FilePath, UTCTime))
+-&gt; (Maybe (FilePath, UTCTime) -&gt; STM (FilePath, UTCTime))
+-&gt; STM (FilePath, UTCTime)
+forall a b. STM a -&gt; (a -&gt; STM b) -&gt; STM b
+forall (m :: * -&gt; *) a b. Monad m =&gt; m a -&gt; (a -&gt; m b) -&gt; m b
+</span><span class="hs-operator hs-var">&gt;&gt;=</span></span><span> </span><span class="hs-glyph">\</span><span class="hs-glyph">case</span><span>
+</span><span id="line-105"></span><span>          </span><span class="annot"><span class="annottext">Maybe (FilePath, UTCTime)
+</span><span class="hs-identifier hs-var">Nothing</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">STM (FilePath, UTCTime)
+forall a. STM a
+</span><span class="hs-identifier hs-var">STM.retry</span></span><span>
+</span><span id="line-106"></span><span>          </span><span class="annot"><span class="hs-identifier hs-type">Just</span></span><span> </span><span id="local-6989586621681197295"><span class="annot"><span class="annottext">(FilePath, UTCTime)
+</span><a href="#local-6989586621681197295"><span class="hs-identifier hs-var">event</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-107"></span><span>            </span><span class="annot"><span class="annottext">TVar (Maybe (FilePath, UTCTime))
+-&gt; Maybe (FilePath, UTCTime) -&gt; STM ()
+forall a. TVar a -&gt; a -&gt; STM ()
+</span><span class="hs-identifier hs-var">STM.writeTVar</span></span><span> </span><span class="annot"><span class="annottext">TVar (Maybe (FilePath, UTCTime))
+</span><a href="#local-6989586621681197274"><span class="hs-identifier hs-var">latestEventVar</span></a></span><span> </span><span class="annot"><span class="annottext">Maybe (FilePath, UTCTime)
+forall a. Maybe a
+</span><span class="hs-identifier hs-var">Nothing</span></span><span>
+</span><span id="line-108"></span><span>            </span><span class="annot"><span class="annottext">(FilePath, UTCTime) -&gt; STM (FilePath, UTCTime)
+forall a. a -&gt; STM a
+forall (f :: * -&gt; *) a. Applicative f =&gt; a -&gt; f a
+</span><span class="hs-identifier hs-var">pure</span></span><span> </span><span class="annot"><span class="annottext">(FilePath, UTCTime)
+</span><a href="#local-6989586621681197295"><span class="hs-identifier hs-var">event</span></a></span><span>
+</span><span id="line-109"></span><span>
+</span><span id="line-110"></span><span>  </span><span class="annot"><span class="annottext">STM (FilePath, UTCTime) -&gt; IO (STM (FilePath, UTCTime))
+forall a. a -&gt; IO a
+forall (f :: * -&gt; *) a. Applicative f =&gt; a -&gt; f a
+</span><span class="hs-identifier hs-var">pure</span></span><span> </span><span class="annot"><span class="annottext">STM (FilePath, UTCTime)
+</span><a href="#local-6989586621681197293"><span class="hs-identifier hs-var">readLatestEvent</span></a></span><span>
+</span><span id="line-111"></span></pre></body></html>
